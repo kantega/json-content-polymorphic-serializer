@@ -11,7 +11,7 @@ To do this, we call the interface's draw() function, rather than asking the obje
 
 ## Polymorphism and JSON with Kotlinx ##
 
-Traditionally, JSON polymorphic serialization and de-serialization requires the presence of a 'type' property.
+Traditionally, JSON polymorphic serialization requires the presence of a 'type' property.
 Various implementation of object mappers have provided different approaches to handling polymorphic JSON, and most of them rely on this property.
 [Jackson Annotations](https://www.tutorialspoint.com/jackson_annotations/jackson_annotations_jsontypeinfo.htm), for instance, will allow use of the '@JsonTypeInfo' to specify type information used for serialization and de-serialization. 
 
@@ -31,11 +31,36 @@ object PaymentDetailsSerializer : JsonContentPolymorphicSerializer<PaymentDetail
 Here we will choose serializer based on the presence of the 'cardName' property.
 
 ```kotlin
-Json.decodeFromString(PaymentDetailsSerializer, """{"id":1,"amount":"1.0","date":"02.03.2022"}""")
-Json.decodeFromString(PaymentDetailsSerializer, """{"id":2,"amount":"1.0","date":"02.03.2022","cardName":"Scrooge McDuck"}""")
+Json.decodeFromString("""{"amount":"1.0","date":"02.03.2022"}""")
+Json.decodeFromString("""{"amount":"1.0","date":"02.03.2022","cardName":"Scrooge McDuck"}""")
 ```
 
-For a closer look at the polymorphic serialization and de-serialization, you may find a simple web application and unit tests included. 
+For this, we provide a simple, serializable, polymorphic class hierarchy by marking the abstract base class _sealed_, to prevent subclasses to be defined at runtime.
+We also annotate the class _serializable_, and specify our custom serializer to allow for implicit (de-)serialization.
+```kotlin
+@Serializable(with = PaymentDetailsSerializer::class)
+sealed class PaymentDetails {
+    abstract val amount: Double
+    abstract val date: String
+    abstract val details: String
+}
+```
 
-### Caveat ###
+We implement our card details class as a serializable subclass.
+```kotlin
+@Serializable
+class CardPaymentDetails (
+    override val amount: Double,
+    override val date: String,
+    override val details: String,
+    val cardName: String,
+) : PaymentDetails()
+```
+
+For a closer look at the polymorphic serialization and de-serialization, you may find a simple web application and unit tests included.
+
+The web application provides a get and post endpoint, which serializes and de-serializes json output/input.
+The unit tests asserts that the json encoding/decoding behaves as expected.
+
+## Caveat ##
 Since JSON content is represented by JsonElement class and could be read only with [JsonDecoder](https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-json/kotlinx.serialization.json/-json-decoder/index.html), this class only works with [Json](https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-json/kotlinx.serialization.json/-json/index.html) format

@@ -1,10 +1,13 @@
-import io.ktor.application.call
+import io.ktor.application.*
+import io.ktor.features.*
 import io.ktor.html.respondHtml
-import io.ktor.http.HttpStatusCode
-import io.ktor.routing.get
-import io.ktor.routing.routing
+import io.ktor.http.*
+import io.ktor.request.*
+import io.ktor.routing.*
+import io.ktor.serialization.*
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
+import io.ktor.util.reflect.*
 import kotlinx.html.*
 import kotlinx.serialization.json.Json
 
@@ -42,21 +45,21 @@ fun HTML.index() {
                     }
                 }
                 tbody {
-                    getPaymentDetails().forEach {
+                    paymentDetails.forEachIndexed { index, item ->
                         tr {
                             td {
-                                a("/${it.id}") {
-                                    +"${it.id}"
+                                a("/payment/$index") {
+                                    +"$index"
                                 }
                             }
                             td {
-                                +it.date
+                                +item.date
                             }
                             td {
-                                +it.amount.toString()
+                                +item.amount.toString()
                             }
                             td {
-                                +it.details
+                                +item.details
                             }
                         }
                     }
@@ -66,16 +69,22 @@ fun HTML.index() {
     }
 }
 
-fun getPaymentDetails(): List<PaymentDetails> {
-    return listOf(
-        StandardPaymentDetails(1, 1.0, "02.03.2022"),
-        StandardPaymentDetails(2, 3.0, "02.03.2022"),
-        CreditCardPaymentDetails(3, 1.0, "02.03.2022", "Scrooge McDuck"),
-    )
-}
+var paymentDetails = mutableListOf(
+    StandardPaymentDetails(1.0, "02.03.2022"),
+    StandardPaymentDetails(3.0, "02.03.2022"),
+    CreditCardPaymentDetails(1.0, "02.03.2022", "Scrooge McDuck"),
+)
 
 fun main() {
-    embeddedServer(Netty, port = 8080, host = "127.0.0.1") {
+    embeddedServer(Netty, port = 5000, host = "127.0.0.1") {
+
+        install(ContentNegotiation) {
+            json(Json {
+                prettyPrint = true
+                isLenient = true
+            })
+        }
+
         routing {
             get("/") {
                 call.respondHtml(HttpStatusCode.OK, HTML::index)
@@ -83,16 +92,54 @@ fun main() {
         }
 
         routing {
-            get("/{id}") {
-                val id = call.parameters["id"]
-                val paymentDetails = getPaymentDetails().find { it.id == id?.toInt() }
-                call.respondHtml {
-                    body {
-                        div {
-                            if (paymentDetails != null) {
+            get("/payment/{idx}") {
+                try {
+                    val idx = call.parameters["idx"]
+                    val paymentDetails = paymentDetails[idx?.toInt()!!]
+                    call.respondHtml {
+                        body {
+                            div {
                                 +Json.encodeToString(PaymentDetailsSerializer, paymentDetails)
-                            } else {
-                                +"Could not find payment details for id '$id'"
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    call.respondHtml(HttpStatusCode.NotFound) {
+                        body {
+                            div {
+                                +"Could not find payment details"
+                            }
+                        }
+                    }
+                }
+            }
+
+            post("/payment") {
+                try {
+                    val details = call.receive<PaymentDetails>()
+                    val type = if (paymentDetails.instanceOf(CreditCardPaymentDetails::class)) { "credit card" } else { "ordinary" }
+                    if (paymentDetails.add(details)) {
+                        call.respondHtml {
+                            body {
+                                div {
+                                    +"Received $type payment details"
+                                }
+                            }
+                        }
+                    } else {
+                        call.respondHtml(HttpStatusCode.BadRequest) {
+                            body {
+                                div {
+                                    +"Could not add payment details"
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    call.respondHtml(HttpStatusCode.BadRequest) {
+                        body {
+                            div {
+                                +"Could not read payment details"
                             }
                         }
                     }
